@@ -1713,7 +1713,7 @@
         title: ev.summary || "",
         entityId: entity,
         dueKey: start ? brusselsDayKey(start, tz) : "",
-        matchDay: isAllDayEvent(ev),
+        matchDay: true,
         tz: tz,
       });
     }
