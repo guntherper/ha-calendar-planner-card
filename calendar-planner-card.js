@@ -7,7 +7,7 @@
 (function (global) {
   "use strict";
 
-  var VERSION = "1.4.0";
+  var VERSION = "1.4.1";
   var DETAIL_UID = 0;
   var TZ_DEFAULT = "Europe/Brussels";
   var CACHE_MS = 60000;
