@@ -7,7 +7,7 @@
 (function (global) {
   "use strict";
 
-  var VERSION = "1.2.0";
+  var VERSION = "1.2.1";
   var TZ_DEFAULT = "Europe/Brussels";
   var CACHE_MS = 60000;
 
@@ -66,13 +66,13 @@
     ".cpc-day-items { min-width: 0; }",
     ".cpc-count { font-size: var(--cpc-fs-micro); font-weight: 700; color: var(--cpc-fg-dim); background: var(--cpc-hover); border-radius: 999px; padding: 2px 7px; margin-left: 6px; }",
     /* 4. item-rij: [48px tijd/checkbox] [3px balk] [1fr titel+sub] [auto badge] [auto actie] */
-    ".cpc-item { display: grid; grid-template-columns: 48px 3px 1fr auto auto; align-items: center; column-gap: 10px; min-height: var(--cpc-row-min); padding: 4px 0; border-radius: 8px; margin-inline: -6px; padding-inline: 6px; --cpc-src: hsl(var(--cpc-src-h, 200) 62% 52%); }",
+    ".cpc-item { display: grid; grid-template-columns: 56px 3px 1fr auto auto; align-items: center; column-gap: 10px; min-height: var(--cpc-row-min); padding: 4px 0; border-radius: 8px; margin-inline: -6px; padding-inline: 6px; --cpc-src: hsl(var(--cpc-src-h, 200) 62% 52%); }",
     ".cpc-item:hover { background: var(--cpc-hover); }",
     ".cpc-item:active { background: var(--cpc-press); }",
     ".cpc-item.overdue { background: rgba(var(--rgb-error-color, 217,48,37), .07); box-shadow: inset 3px 0 0 var(--cpc-danger); }",
-    ".cpc-lead { display: flex; align-items: center; justify-content: flex-end; min-width: 0; }",
-    ".cpc-time { font-size: var(--cpc-fs-time); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--cpc-fg-dim); }",
-    ".cpc-time.allday { font-size: var(--cpc-fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }",
+    ".cpc-lead { display: flex; align-items: center; justify-content: flex-end; min-width: 0; height: 100%; }",
+    ".cpc-time { font-size: var(--cpc-fs-time); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--cpc-fg-dim); text-align: right; }",
+    ".cpc-time.allday { font-size: var(--cpc-fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--cpc-fg-dim); text-align: right; line-height: 1.15; }",
     ".cpc-bar { align-self: stretch; border-radius: 2px; background: var(--cpc-src); margin: 6px 0; }",
     ".cpc-body-col { min-width: 0; }",
     ".cpc-item-title { font-size: var(--cpc-fs-item); font-weight: 500; color: var(--cpc-fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }",
@@ -253,15 +253,30 @@
     return !!item.start;
   }
 
+  function isAllDayEvent(item) {
+    return !!(item && item.start && item.start.date && !item.start.dateTime);
+  }
+
   function mixDayItems(items) {
     var list = Array.isArray(items) ? items : [];
-    var events = [];
+    var allday = [];
+    var timed = [];
     var tasks = [];
     for (var i = 0; i < list.length; i++) {
-      if (isEvent(list[i])) events.push(list[i]);
-      else tasks.push(list[i]);
+      var it = list[i];
+      if (isEvent(it)) {
+        if (isAllDayEvent(it)) allday.push(it);
+        else timed.push(it);
+      } else {
+        tasks.push(it);
+      }
     }
-    return events.concat(tasks);
+    timed.sort(function (a, b) {
+      var sa = parseEventStart(a.start), sb = parseEventStart(b.start);
+      var ta = sa ? sa.getTime() : 0, tb = sb ? sb.getTime() : 0;
+      return ta - tb;
+    });
+    return allday.concat(timed).concat(tasks);
   }
 
   function itemDayKey(item, timeZone) {
