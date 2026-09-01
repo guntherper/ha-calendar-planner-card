@@ -11,7 +11,11 @@ const path = require("path");
 const vm = require("vm");
 const assert = require("assert");
 
-const CARD = path.join(__dirname, "..", "diagrammen", "calendar-planner-card.js");
+const CARD_CANDIDATES = [
+  path.join(__dirname, "..", "diagrammen", "calendar-planner-card.js"),
+  path.join(__dirname, "calendar-planner-card.js"),
+];
+const CARD = CARD_CANDIDATES.find(function (p) { return fs.existsSync(p); }) || CARD_CANDIDATES[0];
 
 let failed = 0;
 let passed = 0;
@@ -307,8 +311,8 @@ test("getConfigElement → calendar-planner-card-editor", function () {
   }
 });
 
-test("VERSION is 1.3.0", function () {
-  assert.strictEqual(L.VERSION, "1.3.0");
+test("VERSION is 1.4.0", function () {
+  assert.strictEqual(L.VERSION, "1.4.0");
 });
 
 test("sourceHue: stabiel per id, hue uit gecureerde reeks", function () {
@@ -461,6 +465,77 @@ test("Toevoegen aan taken: payload heeft item + due_date", function () {
   assert.strictEqual(captured.data.entity_id, "todo.gezin_actief");
   assert.strictEqual(captured.data.item, "Infoavond eerste jaar");
   assert.strictEqual(captured.data.due_date, "2026-09-09");
+});
+
+test("N1 matchingOpenTask: open zelfde titel in doellijst; hele-dag zelfde dag", function () {
+  assert.equal(typeof L.matchingOpenTask, "function");
+  const tasks = [
+    { _kind: "task", _source: "todo.gezin_actief", summary: "Infoavond", status: "needs_action", due: "2026-09-09" },
+    { _kind: "task", _source: "todo.gezin", summary: "Infoavond", status: "needs_action", due: "2026-09-09" },
+    { _kind: "task", _source: "todo.gezin_actief", summary: "Ander", status: "needs_action", due: "2026-09-09" },
+    { _kind: "task", _source: "todo.gezin_actief", summary: "Infoavond", status: "completed", due: "2026-09-09" },
+    { _kind: "task", _source: "todo.gezin_actief", summary: "Infoavond", status: "needs_action", due: "2026-09-10" },
+  ];
+  const hit = L.matchingOpenTask(tasks, {
+    title: "Infoavond",
+    entityId: "todo.gezin_actief",
+    dueKey: "2026-09-09",
+    matchDay: true,
+    tz: "Europe/Brussels",
+  });
+  assert.ok(hit, "hele-dag: zelfde titel + dag in doellijst moet matchen");
+  assert.strictEqual(hit.due, "2026-09-09");
+
+  const otherDay = L.matchingOpenTask(tasks, {
+    title: "Infoavond",
+    entityId: "todo.gezin_actief",
+    dueKey: "2026-09-11",
+    matchDay: true,
+    tz: "Europe/Brussels",
+  });
+  assert.strictEqual(otherDay, null, "hele-dag: andere dag mag niet matchen");
+
+  const otherList = L.matchingOpenTask(tasks, {
+    title: "Infoavond",
+    entityId: "todo.niet_bestaand",
+    dueKey: "2026-09-09",
+    matchDay: true,
+    tz: "Europe/Brussels",
+  });
+  assert.strictEqual(otherList, null, "andere lijst mag niet matchen");
+
+  const timed = L.matchingOpenTask(tasks, {
+    title: "Infoavond",
+    entityId: "todo.gezin_actief",
+    dueKey: "2026-09-11",
+    matchDay: false,
+    tz: "Europe/Brussels",
+  });
+  assert.ok(timed, "tijdsgebonden event: alleen titel in doellijst telt");
+});
+
+test("N5 nextTrapTarget: Tab-cyclus eerste/laatste", function () {
+  assert.equal(typeof L.nextTrapTarget, "function");
+  const list = ["a", "b", "c"];
+  assert.strictEqual(L.nextTrapTarget(list, "c", false), "a", "Tab op laatste → eerste");
+  assert.strictEqual(L.nextTrapTarget(list, "a", true), "c", "Shift+Tab op eerste → laatste");
+  assert.strictEqual(L.nextTrapTarget(list, "b", false), null, "Tab in het midden niet vangen");
+  assert.strictEqual(L.nextTrapTarget(list, "b", true), null, "Shift+Tab in het midden niet vangen");
+  assert.strictEqual(L.nextTrapTarget(list, "x", true), "c", "Shift+Tab buiten de lijst → laatste");
+  assert.strictEqual(L.nextTrapTarget([], "a", false), null);
+  assert.equal(typeof L.trapTab, "function");
+  let prevented = false;
+  let focused = null;
+  const first = { id: "first", focus: function () { focused = "first"; } };
+  const last = { id: "last", focus: function () { focused = "last"; } };
+  const trapped = L.trapTab(
+    { key: "Tab", shiftKey: false, target: last, preventDefault: function () { prevented = true; } },
+    [first, last]
+  );
+  assert.strictEqual(trapped, true);
+  assert.ok(prevented);
+  assert.strictEqual(focused, "first");
+  assert.strictEqual(L.trapTab({ key: "Escape", target: last }, [first, last]), false);
 });
 
 console.log("");

@@ -7,7 +7,7 @@
 (function (global) {
   "use strict";
 
-  var VERSION = "1.3.0";
+  var VERSION = "1.4.0";
   var DETAIL_UID = 0;
   var TZ_DEFAULT = "Europe/Brussels";
   var CACHE_MS = 60000;
@@ -174,6 +174,8 @@
     ".cpc-detail-loc { display: inline-flex; align-items: center; min-height: 44px; margin: -11px 0; padding: 0; border: 0; background: transparent; font: inherit; font-size: var(--cpc-fs-item); color: var(--cpc-accent); text-decoration: none; cursor: pointer; text-align: left; overflow-wrap: anywhere; }",
     ".cpc-detail-loc:hover { text-decoration: underline; }",
     ".cpc-detail-desc { font-size: var(--cpc-fs-item); line-height: 1.55; color: var(--cpc-fg); white-space: pre-wrap; overflow-wrap: anywhere; }",
+    ".cpc-detail-desc.collapsed { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }",
+    ".cpc-detail-more { border: 0; background: transparent; color: var(--cpc-accent); font: inherit; font-size: var(--cpc-fs-sub); font-weight: 600; cursor: pointer; padding: 4px 0; min-height: 32px; text-align: left; }",
     ".cpc-detail-desc a { color: var(--cpc-accent); }",
     ".cpc-detail-src { display: inline-flex; align-items: center; gap: 8px; font-size: var(--cpc-fs-item); color: var(--cpc-fg); }",
     ".cpc-detail-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cpc-src); flex-shrink: 0; }",
@@ -193,6 +195,9 @@
     ".cpc-detail-edit label { display: flex; flex-direction: column; gap: 5px; font-size: var(--cpc-fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--cpc-fg-dim); }",
     ".cpc-detail-edit input { font: inherit; font-size: var(--cpc-fs-item); font-weight: 400; letter-spacing: normal; text-transform: none; color: var(--cpc-fg); background: rgba(var(--rgb-primary-text-color,33,33,33), .05); border: 1px solid var(--cpc-line); border-radius: 10px; padding: 0 12px; min-height: 44px; }",
     ".cpc-detail-edit input:focus { border-color: var(--cpc-accent); background: var(--cpc-surface); }",
+    ".cpc-detail-edit textarea { font: inherit; font-size: var(--cpc-fs-item); font-weight: 400; letter-spacing: normal; text-transform: none; color: var(--cpc-fg); background: rgba(var(--rgb-primary-text-color,33,33,33), .05); border: 1px solid var(--cpc-line); border-radius: 10px; padding: 10px 12px; min-height: 88px; resize: vertical; }",
+    ".cpc-detail-edit textarea:focus { border-color: var(--cpc-accent); background: var(--cpc-surface); }",
+    ".cpc-detail-sheet .cpc-chips { padding: 8px var(--cpc-pad-x) 0; }",
     ".cpc-open { display: block; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }",
     ".cpc-item[data-openable] { cursor: pointer; }",
     "@media (prefers-reduced-motion: no-preference) { .cpc-detail-sheet { animation: cpc-sheet-in .16s ease-out; } }",
@@ -486,6 +491,80 @@
     if (last < s.length) parent.appendChild(document.createTextNode(s.slice(last)));
   }
 
+  function matchingOpenTask(tasks, opts) {
+    opts = opts || {};
+    var title = String(opts.title || "").trim();
+    if (!title) return null;
+    var entity = opts.entityId || "";
+    var dueKey = opts.dueKey || "";
+    var matchDay = !!opts.matchDay;
+    var tz = opts.tz || TZ_DEFAULT;
+    var list = Array.isArray(tasks) ? tasks : [];
+    for (var i = 0; i < list.length; i++) {
+      var t = list[i];
+      if (!t || t.status === "completed") continue;
+      if (entity && t._source !== entity) continue;
+      if (String(t.summary || "").trim() !== title) continue;
+      if (matchDay) {
+        var d = parseDue(t.due);
+        var tKey = d ? brusselsDayKey(d, tz) : "";
+        if (tKey !== dueKey) continue;
+      }
+      return t;
+    }
+    return null;
+  }
+
+  function nextTrapTarget(list, active, shiftKey) {
+    if (!list || !list.length) return null;
+    if (shiftKey) {
+      if (active === list[0] || list.indexOf(active) === -1) return list[list.length - 1];
+      return null;
+    }
+    if (active === list[list.length - 1]) return list[0];
+    return null;
+  }
+
+  function trapTab(ev, list) {
+    if (!ev || ev.key !== "Tab") return false;
+    var target = nextTrapTarget(list, ev.target, !!ev.shiftKey);
+    if (!target) return false;
+    if (ev.preventDefault) ev.preventDefault();
+    if (target.focus) target.focus();
+    return true;
+  }
+
+  function sheetFocusables(root) {
+    if (!root || !root.querySelectorAll) return [];
+    var nodes = root.querySelectorAll("a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex=\"-1\"])");
+    var out = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.disabled) continue;
+      if (el.getAttribute && el.getAttribute("tabindex") === "-1") continue;
+      out.push(el);
+    }
+    return out;
+  }
+
+  function descriptionNeedsCollapse(text) {
+    var str = String(text == null ? "" : text);
+    if (str.split(/\n/).length > 6) return true;
+    return str.length > 360;
+  }
+
+  function sheetSwipeShouldClose(info) {
+    if (!info) return false;
+    if ((info.scrollTop || 0) > 0) return false;
+    var top = info.sheetTop;
+    if (typeof top !== "number") return false;
+    var fromTop = info.startY >= top && info.startY <= top + 48;
+    if (!fromTop) return false;
+    var dy = info.endY - info.startY;
+    var dx = Math.abs((info.endX || 0) - (info.startX || 0));
+    return dy >= 90 && dy > dx;
+  }
+
   function h(tag, className, text) {
     var el = document.createElement(tag);
     if (className) el.className = className;
@@ -551,6 +630,9 @@
       this._detailDue = "";
       this._detailNote = null;
       this._detailFocused = false;
+      this._detailAddList = "";
+      this._detailDesc = "";
+      this._detailDescOpen = false;
       this._addTitle = "";
       this._addDue = "";
       this._addList = "";
@@ -1509,6 +1591,11 @@
       this._detailEdit = false;
       this._detailNote = null;
       this._detailFocused = false;
+      this._detailDescOpen = false;
+      var todosOpen = (this._config && this._config.todos) || [];
+      if (!this._detailAddList || todosOpen.indexOf(this._detailAddList) === -1) {
+        this._detailAddList = todosOpen[0] || "";
+      }
       this._render();
     }
 
@@ -1519,6 +1606,7 @@
       this._detailGone = null;
       this._detailEdit = false;
       this._detailNote = null;
+      this._detailDescOpen = false;
       this._render();
       if (returnFocus !== false && key) {
         var back = this.shadowRoot && this.shadowRoot.querySelector('[data-cpc-field="row-' + key + '"]');
@@ -1537,7 +1625,59 @@
       return close;
     }
 
+    _appendCollapsibleDesc(col, text) {
+      var self = this;
+      var raw = stripHtmlish(text);
+      var desc = h("div", "cpc-detail-desc" + (!this._detailDescOpen && descriptionNeedsCollapse(raw) ? " collapsed" : ""));
+      appendLinkedText(desc, raw);
+      col.appendChild(desc);
+      if (descriptionNeedsCollapse(raw)) {
+        var more = h("button", "cpc-detail-more", this._detailDescOpen ? "Minder tonen" : "Meer tonen");
+        more.type = "button";
+        more.setAttribute("data-cpc-field", "detail-desc-more");
+        more.addEventListener("click", function () {
+          self._detailDescOpen = !self._detailDescOpen;
+          self._render();
+        });
+        col.appendChild(more);
+      }
+    }
+
+    _bindSheetSwipe(sheetEl) {
+      var self = this;
+      var startY = null;
+      var startX = null;
+      var sheetTop = 0;
+      sheetEl.addEventListener("touchstart", function (ev) {
+        if (!ev.touches || !ev.touches.length) return;
+        var t = ev.touches[0];
+        startY = t.clientY;
+        startX = t.clientX;
+        try {
+          sheetTop = sheetEl.getBoundingClientRect().top;
+        } catch (e) {
+          sheetTop = 0;
+        }
+      }, { passive: true });
+      sheetEl.addEventListener("touchend", function (ev) {
+        if (startY == null) return;
+        var t = ev.changedTouches && ev.changedTouches[0];
+        if (!t) { startY = null; return; }
+        var should = sheetSwipeShouldClose({
+          startY: startY,
+          startX: startX,
+          endY: t.clientY,
+          endX: t.clientX,
+          sheetTop: sheetTop,
+          scrollTop: sheetEl.scrollTop || 0,
+        });
+        startY = null;
+        if (should) self._closeDetail(true);
+      }, { passive: true });
+    }
+
     _actionBtn(className, field, iconName, label, handler) {
+
       var b = h("button", className);
       b.type = "button";
       if (field) b.setAttribute("data-cpc-field", field);
@@ -1558,10 +1698,35 @@
       return note;
     }
 
+    _detailTargetList() {
+      var todos = (this._config && this._config.todos) || [];
+      if (this._detailAddList && todos.indexOf(this._detailAddList) !== -1) return this._detailAddList;
+      return todos[0] || "";
+    }
+
+    _eventAlreadyInTasks(ev) {
+      var entity = this._detailTargetList();
+      if (!entity || !ev) return null;
+      var tz = this._timeZone();
+      var start = parseEventStart(ev.start);
+      return matchingOpenTask(this._tasks, {
+        title: ev.summary || "",
+        entityId: entity,
+        dueKey: start ? brusselsDayKey(start, tz) : "",
+        matchDay: isAllDayEvent(ev),
+        tz: tz,
+      });
+    }
+
     _detailAddEventToTasks(ev) {
       var todos = this._config.todos || [];
       if (!todos.length) return;
-      var entity = this._addList || todos[0];
+      if (this._eventAlreadyInTasks(ev)) {
+        this._detailNote = { type: "ok", text: "Staat al in je taken" };
+        this._render();
+        return;
+      }
+      var entity = this._detailTargetList();
       var tz = this._timeZone();
       var start = parseEventStart(ev.start);
       var data = {
@@ -1596,6 +1761,7 @@
       this._detailTitle = item.summary || "";
       var due = parseDue(item.due);
       this._detailDue = due ? brusselsDayKey(due, this._timeZone()) : "";
+      this._detailDesc = item.description || "";
       this._detailNote = null;
       this._render();
     }
@@ -1615,6 +1781,8 @@
       var data = { entity_id: item._source, item: item.uid, rename: title };
       if (this._detailDue) data.due_date = this._detailDue;
       else if (hadDue) data.due_date = null;
+      var desc = (this._detailDesc || "").trim();
+      data.description = desc ? desc : null;
       this._detailEdit = false;
       this._detailNote = { type: "ok", text: "Opgeslagen" };
       if (!item.uid) {
@@ -1648,8 +1816,13 @@
       if (isEvent(item)) this._renderDetailEvent(sheetEl, item, titleId);
       else this._renderDetailTask(sheetEl, item, titleId);
       overlay.appendChild(sheetEl);
+      this._bindSheetSwipe(sheetEl);
       overlay.addEventListener("click", function (ev) { if (ev.target === overlay) self._closeDetail(true); });
       overlay.addEventListener("keydown", function (ev) {
+        if (ev.key === "Tab") {
+          trapTab(ev, sheetFocusables(sheetEl));
+          return;
+        }
         if (ev.key !== "Escape") return;
         ev.stopPropagation();
         if (self._detailEdit) { self._detailCancelEdit(); return; }
@@ -1712,9 +1885,7 @@
         dRow.appendChild(icon("mdi:text-long"));
         var dCol = h("div");
         dCol.appendChild(h("div", "cpc-detail-label", "Beschrijving"));
-        var desc = h("div", "cpc-detail-desc");
-        appendLinkedText(desc, stripHtmlish(item.description));
-        dCol.appendChild(desc);
+        this._appendCollapsibleDesc(dCol, item.description);
         dRow.appendChild(dCol);
         body.appendChild(dRow);
       }
@@ -1733,12 +1904,39 @@
       var note = this._detailNoteEl();
       if (note) sheetEl.appendChild(note);
 
-      var actions = h("div", "cpc-detail-actions");
       var todos = this._config.todos || [];
+      if (todos.length > 1) {
+        var listChips = h("div", "cpc-chips");
+        for (var ci = 0; ci < todos.length; ci++) {
+          (function (tid) {
+            var name = self._friendlyName(tid);
+            var on = (self._detailTargetList() === tid);
+            var chip = h("button", "cpc-chip" + (on ? " active" : ""), name);
+            chip.type = "button";
+            chip.setAttribute("aria-pressed", on ? "true" : "false");
+            chip.setAttribute("data-cpc-field", "detail-list-" + tid);
+            chip.addEventListener("click", function () {
+              self._detailAddList = tid;
+              self._render();
+            });
+            listChips.appendChild(chip);
+          })(todos[ci]);
+        }
+        sheetEl.appendChild(listChips);
+      }
+
+      var actions = h("div", "cpc-detail-actions");
       if (todos.length) {
-        actions.appendChild(this._actionBtn("cpc-btn primary", "detail-add", "mdi:plus", "Toevoegen aan taken", function () {
+        var already = this._eventAlreadyInTasks(item);
+        var addLabel = already ? "Staat al in je taken" : "Toevoegen aan taken";
+        var addBtn = this._actionBtn("cpc-btn primary", "detail-add", "mdi:plus", addLabel, already ? null : function () {
           self._detailAddEventToTasks(item);
-        }));
+        });
+        if (already) {
+          addBtn.disabled = true;
+          addBtn.setAttribute("disabled", "");
+        }
+        actions.appendChild(addBtn);
       }
       actions.appendChild(h("div", "cpc-detail-spacer"));
       actions.appendChild(this._actionBtn("cpc-btn", "detail-dismiss", null, "Sluiten", function () { self._closeDetail(true); }));
@@ -1793,9 +1991,7 @@
         nRow.appendChild(icon("mdi:text-long"));
         var nCol = h("div");
         nCol.appendChild(h("div", "cpc-detail-label", "Notitie"));
-        var ndesc = h("div", "cpc-detail-desc");
-        appendLinkedText(ndesc, stripHtmlish(item.description));
-        nCol.appendChild(ndesc);
+        this._appendCollapsibleDesc(nCol, item.description);
         nRow.appendChild(nCol);
         body.appendChild(nRow);
       }
@@ -1827,6 +2023,15 @@
         });
         labDue.appendChild(dueIn);
         edit.appendChild(labDue);
+        var labNote = document.createElement("label");
+        labNote.appendChild(document.createTextNode("Notitie"));
+        var noteIn = document.createElement("textarea");
+        noteIn.rows = 3;
+        noteIn.value = this._detailDesc || "";
+        noteIn.setAttribute("data-cpc-field", "detail-desc");
+        noteIn.addEventListener("input", function () { self._detailDesc = noteIn.value; });
+        labNote.appendChild(noteIn);
+        edit.appendChild(labNote);
         var chips = h("div", "cpc-chips");
         function addChip(label, value) {
           var pressed = value === "" ? !self._detailDue : self._detailDue === value;
@@ -2052,6 +2257,11 @@
     sourceHue: sourceHue,
     itemKey: itemKey,
     formatEventWhen: formatEventWhen,
+    matchingOpenTask: matchingOpenTask,
+    nextTrapTarget: nextTrapTarget,
+    trapTab: trapTab,
+    descriptionNeedsCollapse: descriptionNeedsCollapse,
+    sheetSwipeShouldClose: sheetSwipeShouldClose,
     dayWeekdayShort: dayWeekdayShort,
     dayNumber: dayNumber,
     VERSION: VERSION,
