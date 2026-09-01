@@ -1,0 +1,328 @@
+#!/usr/bin/env node
+"use strict";
+
+/**
+ * Node-tests voor calendar-planner-card (CalendarPlannerLogic + registratie).
+ * Run: node /home/gunther/jarvis-ha/www/test_calendar_planner_logic.js
+ */
+
+const fs = require("fs");
+const path = require("path");
+const vm = require("vm");
+const assert = require("assert");
+
+const CARD = path.join(__dirname, "..", "diagrammen", "calendar-planner-card.js");
+
+let failed = 0;
+let passed = 0;
+
+function test(name, fn) {
+  try {
+    fn();
+    passed += 1;
+    console.log("PASS  " + name);
+  } catch (err) {
+    failed += 1;
+    console.log("FAIL  " + name);
+    console.log("  " + (err && err.stack ? err.stack.split("\n").slice(0, 4).join("\n  ") : err));
+  }
+}
+
+if (!fs.existsSync(CARD)) {
+  console.log("FAIL  kaart/logica ontbreekt: " + CARD);
+  process.exit(1);
+}
+
+global.HTMLElement = class HTMLElement {
+  constructor() {
+    this.shadowRoot = null;
+  }
+  attachShadow(init) {
+    const root = {
+      mode: init && init.mode,
+      childNodes: [],
+      innerHTML: "",
+      appendChild: function (el) {
+        this.childNodes.push(el);
+        return el;
+      },
+      querySelector: function () {
+        return null;
+      },
+      querySelectorAll: function () {
+        return [];
+      },
+    };
+    this.shadowRoot = root;
+    return root;
+  }
+  addEventListener() {}
+  removeEventListener() {}
+  dispatchEvent() {
+    return true;
+  }
+  appendChild() {}
+  setAttribute() {}
+  getAttribute() {
+    return null;
+  }
+};
+
+global.customElements = {
+  _reg: Object.create(null),
+  define: function (name, ctor) {
+    this._reg[name] = ctor;
+  },
+  get: function (name) {
+    return this._reg[name];
+  },
+};
+
+global.window = global;
+global.document = {
+  createElement: function (tag) {
+    return {
+      tagName: String(tag).toUpperCase(),
+      style: {},
+      className: "",
+      textContent: "",
+      innerHTML: "",
+      children: [],
+      childNodes: [],
+      dataset: {},
+      appendChild: function (el) {
+        this.children.push(el);
+        this.childNodes.push(el);
+        return el;
+      },
+      addEventListener: function () {},
+      setAttribute: function () {},
+      getAttribute: function () {
+        return null;
+      },
+      querySelector: function () {
+        return null;
+      },
+      querySelectorAll: function () {
+        return [];
+      },
+    };
+  },
+};
+global.CustomEvent = class CustomEvent {
+  constructor(type, init) {
+    this.type = type;
+    this.detail = init && init.detail;
+    this.bubbles = !!(init && init.bubbles);
+    this.composed = !!(init && init.composed);
+  }
+};
+global.Node = { TEXT_NODE: 3, ELEMENT_NODE: 1 };
+
+const code = fs.readFileSync(CARD, "utf8");
+vm.runInThisContext(code, { filename: CARD });
+
+const L = global.CalendarPlannerLogic;
+
+test("CalendarPlannerLogic is geëxporteerd", function () {
+  assert.ok(L, "globalThis.CalendarPlannerLogic ontbreekt");
+  assert.equal(typeof L.brusselsDayKey, "function");
+  assert.equal(typeof L.isOverdue, "function");
+  assert.equal(typeof L.mixDayItems, "function");
+  assert.equal(typeof L.groupItemsByDay, "function");
+  assert.equal(typeof L.parseDue, "function");
+  assert.equal(typeof L.parseEventStart, "function");
+  assert.equal(typeof L.formatTime, "function");
+  assert.ok(L.DEFAULT_CONFIG);
+});
+
+test("DEFAULT_CONFIG.days===14, title===Planner", function () {
+  assert.strictEqual(L.DEFAULT_CONFIG.days, 14);
+  assert.strictEqual(L.DEFAULT_CONFIG.title, "Planner");
+  assert.deepStrictEqual(L.DEFAULT_CONFIG.calendars, []);
+  assert.deepStrictEqual(L.DEFAULT_CONFIG.todos, []);
+});
+
+test("brusselsDayKey 2026-09-01T22:30:00Z → 2026-09-02", function () {
+  assert.strictEqual(L.brusselsDayKey("2026-09-01T22:30:00Z"), "2026-09-02");
+  assert.strictEqual(L.brusselsDayKey(new Date("2026-09-01T22:30:00Z")), "2026-09-02");
+});
+
+test("isOverdue: gisteren+needs_action true; vandaag false; completed false; geen due false", function () {
+  const now = new Date("2026-09-01T12:00:00+02:00");
+  assert.strictEqual(
+    L.isOverdue({ due: "2026-08-31", status: "needs_action" }, now),
+    true
+  );
+  assert.strictEqual(
+    L.isOverdue({ due: "2026-09-01", status: "needs_action" }, now),
+    false
+  );
+  assert.strictEqual(
+    L.isOverdue({ due: "2026-08-31", status: "completed" }, now),
+    false
+  );
+  assert.strictEqual(L.isOverdue({ status: "needs_action" }, now), false);
+});
+
+test("mixDayItems: events vóór taken", function () {
+  const mixed = L.mixDayItems([
+    { _kind: "task", summary: "Taak 1" },
+    { _kind: "event", summary: "Event A" },
+    { _kind: "task", summary: "Taak 2" },
+    { _kind: "event", summary: "Event B" },
+  ]);
+  assert.deepStrictEqual(
+    mixed.map(function (i) {
+      return i.summary;
+    }),
+    ["Event A", "Event B", "Taak 1", "Taak 2"]
+  );
+});
+
+test("groupItemsByDay: zelfde dag samen; undated apart", function () {
+  const result = L.groupItemsByDay([
+    {
+      _kind: "event",
+      summary: "Tandarts",
+      start: { dateTime: "2026-09-01T10:00:00+02:00" },
+    },
+    { _kind: "task", summary: "Melk", due: "2026-09-01", status: "needs_action" },
+    { _kind: "event", summary: "Schoolfeest", start: { date: "2026-09-02" } },
+    { _kind: "task", summary: "Boek lezen", status: "needs_action" },
+  ]);
+  assert.ok(result && Array.isArray(result.days), "result.days moet een array zijn");
+  assert.ok(Array.isArray(result.undated), "result.undated moet een array zijn");
+  const keys = result.days.map(function (d) {
+    return d.key;
+  });
+  assert.ok(keys.indexOf("2026-09-01") !== -1, "2026-09-01 ontbreekt");
+  assert.ok(keys.indexOf("2026-09-02") !== -1, "2026-09-02 ontbreekt");
+  const d1 = result.days.find(function (d) {
+    return d.key === "2026-09-01";
+  });
+  assert.deepStrictEqual(
+    d1.items.map(function (i) {
+      return i.summary;
+    }),
+    ["Tandarts", "Melk"]
+  );
+  const d2 = result.days.find(function (d) {
+    return d.key === "2026-09-02";
+  });
+  assert.deepStrictEqual(
+    d2.items.map(function (i) {
+      return i.summary;
+    }),
+    ["Schoolfeest"]
+  );
+  assert.deepStrictEqual(
+    result.undated.map(function (i) {
+      return i.summary;
+    }),
+    ["Boek lezen"]
+  );
+});
+
+test("parseDue: string date, string datetime, {date}, {dateTime}", function () {
+  const d1 = L.parseDue("2026-09-01");
+  assert.ok(d1, "string date");
+  assert.strictEqual(L.brusselsDayKey(d1), "2026-09-01");
+
+  const d2 = L.parseDue("2026-09-01T10:00:00+02:00");
+  assert.ok(d2, "string datetime");
+  assert.strictEqual(L.brusselsDayKey(d2), "2026-09-01");
+
+  const d3 = L.parseDue({ date: "2026-09-01" });
+  assert.ok(d3, "{date}");
+  assert.strictEqual(L.brusselsDayKey(d3), "2026-09-01");
+
+  const d4 = L.parseDue({ dateTime: "2026-09-01T22:30:00Z" });
+  assert.ok(d4, "{dateTime}");
+  assert.strictEqual(L.brusselsDayKey(d4), "2026-09-02");
+
+  assert.strictEqual(L.parseDue(null), null);
+  assert.strictEqual(L.parseDue(undefined), null);
+});
+
+test("customElements: calendar-planner-card en editor", function () {
+  assert.equal(typeof customElements.get("calendar-planner-card"), "function");
+  assert.equal(typeof customElements.get("calendar-planner-card-editor"), "function");
+});
+
+test("customCards type calendar-planner-card name Planner", function () {
+  assert.ok(Array.isArray(window.customCards));
+  const entry = window.customCards.find(function (c) {
+    return c.type === "calendar-planner-card";
+  });
+  assert.ok(entry, "customCards entry ontbreekt");
+  assert.strictEqual(entry.name, "Planner");
+  assert.strictEqual(entry.preview, true);
+});
+
+test("getStubConfig en setConfig gooit zonder config", function () {
+  const Card = customElements.get("calendar-planner-card");
+  const stub = Card.getStubConfig();
+  assert.strictEqual(stub.title, "Planner");
+  assert.strictEqual(stub.days, 14);
+  assert.deepStrictEqual(stub.calendars, [
+    "calendar.gezin_2",
+    "calendar.jarvisub69_gmail_com",
+  ]);
+  assert.deepStrictEqual(stub.todos, ["todo.gezin_actief", "todo.gezin"]);
+  const el = new Card();
+  assert.throws(function () {
+    el.setConfig();
+  });
+  assert.throws(function () {
+    el.setConfig(null);
+  });
+});
+
+test("getConfigElement → calendar-planner-card-editor", function () {
+  const Card = customElements.get("calendar-planner-card");
+  const orig = global.document.createElement;
+  let requested = null;
+  global.document.createElement = function (tag) {
+    requested = tag;
+    return orig.call(global.document, tag);
+  };
+  try {
+    const node = Card.getConfigElement();
+    assert.strictEqual(requested, "calendar-planner-card-editor");
+    assert.ok(node);
+  } finally {
+    global.document.createElement = orig;
+  }
+});
+
+test("VERSION is 1.1.1", function () {
+  assert.strictEqual(L.VERSION, "1.1.1");
+});
+
+test("sourceHue: stabiel per id, hue uit gecureerde reeks", function () {
+  assert.equal(typeof L.sourceHue, "function");
+  const a = L.sourceHue("calendar.gezin_2");
+  const b = L.sourceHue("calendar.gezin_2");
+  assert.strictEqual(a, b, "zelfde id moet dezelfde hue geven");
+  const golden = [200, 12, 145, 45, 275, 330, 95, 175, 25, 305];
+  assert.ok(golden.indexOf(a) !== -1, "hue " + a + " staat niet in de gecureerde reeks");
+  assert.notStrictEqual(
+    L.sourceHue("todo.gezin"),
+    L.sourceHue("calendar.gezin_2"),
+    "verschillende bronnen moeten (in de praktijk) andere hues krijgen"
+  );
+  assert.strictEqual(L.sourceHue(""), golden[0], "lege id valt terug op eerste hue");
+});
+
+test("dayWeekdayShort/dayNumber 2026-09-01 → di / 1", function () {
+  assert.equal(typeof L.dayWeekdayShort, "function");
+  assert.equal(typeof L.dayNumber, "function");
+  assert.strictEqual(L.dayNumber("2026-09-01"), "1");
+  const wd = L.dayWeekdayShort("2026-09-01");
+  assert.ok(/^di/i.test(String(wd).replace(".", "")), "verwacht di, kreeg " + wd);
+});
+
+console.log("");
+console.log(passed + " passed, " + failed + " failed");
+process.exit(failed ? 1 : 0);
