@@ -296,8 +296,8 @@ test("getConfigElement → calendar-planner-card-editor", function () {
   }
 });
 
-test("VERSION is 1.1.1", function () {
-  assert.strictEqual(L.VERSION, "1.1.1");
+test("VERSION is 1.2.0", function () {
+  assert.strictEqual(L.VERSION, "1.2.0");
 });
 
 test("sourceHue: stabiel per id, hue uit gecureerde reeks", function () {

@@ -7,7 +7,7 @@
 (function (global) {
   "use strict";
 
-  var VERSION = "1.1.1";
+  var VERSION = "1.2.0";
   var TZ_DEFAULT = "Europe/Brussels";
   var CACHE_MS = 60000;
 
@@ -135,10 +135,15 @@
     ".cpc-cell.selected { background: rgba(var(--rgb-primary-color,3,169,244), .12); }",
     ".cpc-cell.selected .cpc-cell-num { background: var(--cpc-accent); color: var(--text-primary-color, #fff); box-shadow: none; }",
     ".cpc-dots { display: flex; justify-content: center; align-items: center; gap: 3px; min-height: 7px; }",
-    ".cpc-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--cpc-src, var(--cpc-accent)); }",
-    ".cpc-dot.task { border-radius: 1px; width: 5px; height: 5px; }",
+    ".cpc-dot { width: 6px; height: 6px; border-radius: 50%; background: hsl(var(--cpc-src-h, 200) 62% 52%); box-shadow: 0 0 0 1px rgba(0,0,0,.25); }",
+    ".cpc-dot.task { border-radius: 2px; width: 6px; height: 6px; }",
     ".cpc-dot.task.overdue { background: var(--cpc-danger); }",
     ".cpc-more { font-size: 9px; font-weight: 700; color: var(--cpc-fg-dim); line-height: 1; }",
+    /* 7b. bronlegenda (maandweergave) */
+    ".cpc-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 10px var(--cpc-pad-x) 0; font-size: var(--cpc-fs-micro); color: var(--cpc-fg-dim); }",
+    ".cpc-legend-item { display: inline-flex; align-items: center; gap: 5px; }",
+    ".cpc-legend-dot { width: 7px; height: 7px; border-radius: 50%; background: hsl(var(--cpc-src-h, 200) 62% 52%); }",
+    ".cpc-legend-dot.task { border-radius: 2px; }",
     /* 8. dagdetail (inline paneel) */
     ".cpc-daysheet { margin: 12px var(--cpc-pad-x) 0; border-radius: var(--cpc-radius); background: rgba(var(--rgb-primary-text-color,33,33,33), .05); border: 1px solid var(--cpc-line); padding: 10px 12px 12px; }",
     ".cpc-daysheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-weight: 600; }",
@@ -755,6 +760,28 @@
       return { map: map, undated: grouped.undated };
     }
 
+    _itemsByKeyWide(tz) {
+      var wide = { days: [], undated: [] };
+      var all = this._allItems();
+      var byKey = Object.create(null);
+      var undated = [];
+      for (var i = 0; i < all.length; i++) {
+        var it = all[i];
+        if (it.status === "completed") continue;
+        var key = itemDayKey(it, tz);
+        if (!key) { undated.push(it); continue; }
+        if (!byKey[key]) byKey[key] = [];
+        byKey[key].push(it);
+      }
+      for (var k in byKey) wide.days.push({ key: k, items: mixDayItems(byKey[k]) });
+      wide.undated = undated;
+      var map = Object.create(null);
+      for (var j = 0; j < wide.days.length; j++) {
+        map[wide.days[j].key] = wide.days[j].items;
+      }
+      return { map: map, undated: wide.undated };
+    }
+
     _renderTimeline() {
       var wrap = h("div", "cpc-timeline");
       var tz = this._timeZone();
@@ -1158,6 +1185,30 @@
       });
       head.appendChild(next);
       wrap.appendChild(head);
+      // bronlegenda: één kleurbolletje per gebruikte agenda/lijst (vriendelijke naam)
+      var legend = h("div", "cpc-legend");
+      var bronnen = [];
+      var gezien = Object.create(null);
+      var alleItems = this._allItems();
+      for (var bi = 0; bi < alleItems.length; bi++) {
+        var bsrc = String(alleItems[bi]._source || "");
+        if (bsrc && !gezien[bsrc]) {
+          gezien[bsrc] = true;
+          bronnen.push(bsrc);
+        }
+      }
+      for (var li = 0; li < bronnen.length; li++) {
+        var bid = bronnen[li];
+        var litem = h("span", "cpc-legend-item");
+        var ldot = h("span", "cpc-legend-dot");
+        ldot.style.setProperty("--cpc-src-h", String(sourceHue(bid)));
+        litem.appendChild(ldot);
+        var st = this._hass && this._hass.states && this._hass.states[bid];
+        var naam = (st && st.attributes && st.attributes.friendly_name) || bid;
+        litem.appendChild(document.createTextNode(naam));
+        legend.appendChild(litem);
+      }
+      if (bronnen.length) wrap.appendChild(legend);
       var wd = h("div", "cpc-weekdays");
       var names = ["ma", "di", "wo", "do", "vr", "za", "zo"];
       for (var i = 0; i < names.length; i++) {
@@ -1165,7 +1216,7 @@
       }
       wrap.appendChild(wd);
       var grid = h("div", "cpc-grid");
-      var packed = this._itemsByKey(tz);
+      var packed = this._itemsByKeyWide(tz);
       var cells = monthCells(cy, cm);
       for (var c = 0; c < cells.length; c++) {
         (function (cell) {
@@ -1226,7 +1277,7 @@
       });
       head.appendChild(close);
       sheet.appendChild(head);
-      var packed = this._itemsByKey(tz);
+      var packed = this._itemsByKeyWide(tz);
       var items = packed.map[this._selectedDay] || [];
       if (!items.length) {
         sheet.appendChild(h("div", "cpc-empty", "Niets gepland"));
