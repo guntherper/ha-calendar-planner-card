@@ -82,6 +82,10 @@
     ".cpc-badge { font-size: var(--cpc-fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .04em; padding: 2px 6px; border-radius: 5px; background: var(--cpc-hover); color: var(--cpc-fg-dim); }",
     ".cpc-badge.danger { background: rgba(var(--rgb-error-color,217,48,37), .16); color: var(--cpc-danger); }",
     ".cpc-check-wrap { display: flex; align-items: center; justify-content: center; width: 48px; min-height: 44px; }",
+    ".cpc-cell[data-narrow], .cpc-item[data-narrow] { }",
+    ":host([data-narrow]) .cpc-item-title { font-size: 14px; }",
+    ":host([data-narrow]) .cpc-row { min-height: 48px; }",
+    ":host([data-narrow]) .cpc-day-label { font-size: 10px; }",
     ".cpc-check { width: 20px; height: 20px; margin: 0; accent-color: var(--cpc-src); cursor: pointer; }",
     ".cpc-del { width: 40px; height: 40px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 50%; cursor: pointer; opacity: 0; transition: opacity .12s ease; }",
     ".cpc-item:hover .cpc-del, .cpc-item:focus-within .cpc-del { opacity: 1; }",
@@ -892,6 +896,7 @@
       cb.type = "checkbox";
       cb.className = "cpc-check";
       cb.checked = item.status === "completed";
+      cb.setAttribute("aria-label", (item.title || "taak") + (cb.checked ? " — afgevinkt" : " — afvinken"));
       if (item.uid) cb.setAttribute("data-uid", item.uid);
       var doneTimer = null;
       cb.addEventListener("change", function () {
@@ -1245,12 +1250,16 @@
         }
       });
       sheet.appendChild(addBtn);
+      sheet.setAttribute("tabindex", "-1");
       sheet.addEventListener("keydown", function (ev) {
         if (ev.key === "Escape") {
           self._selectedDay = null;
           self._render();
         }
       });
+      setTimeout(function () {
+        try { sheet.focus(); } catch (e) {}
+      }, 30);
       return sheet;
     }
 
