@@ -7,7 +7,8 @@
 (function (global) {
   "use strict";
 
-  var VERSION = "1.2.1";
+  var VERSION = "1.3.0";
+  var DETAIL_UID = 0;
   var TZ_DEFAULT = "Europe/Brussels";
   var CACHE_MS = 60000;
 
@@ -149,10 +150,53 @@
     ".cpc-daysheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; font-weight: 600; }",
     ".cpc-daysheet-add { margin-top: 8px; }",
     /* 9. bevestigingsdialoog */
-    ".cpc-confirm { position: absolute; inset: 0; z-index: 3; display: grid; place-items: center; background: rgba(0,0,0,.45); backdrop-filter: blur(2px); }",
+    ".cpc-confirm { position: fixed; inset: 0; z-index: 30; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.45); backdrop-filter: blur(2px); }",
     ".cpc-confirm-box { background: var(--ha-card-background, var(--cpc-surface)); border: 1px solid var(--cpc-line); border-radius: var(--cpc-radius); padding: 18px 18px 14px; max-width: 280px; box-shadow: 0 10px 30px rgba(0,0,0,.5), 0 2px 6px rgba(0,0,0,.35); }",
     ".cpc-confirm-box p { margin: 0 0 12px; }",
     ".cpc-confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }",
+    /* 12. itemdetail (backdrop + sheet) */
+    ".cpc-detail { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center; padding: 24px 12px; background: rgba(0,0,0,.5); overscroll-behavior: contain; }",
+    ".cpc-detail-sheet { position: relative; width: 100%; max-width: 560px; max-height: min(80vh, 720px); overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; background: var(--ha-card-background, var(--cpc-surface)); color: var(--cpc-fg); border: 1px solid var(--cpc-line); border-radius: var(--cpc-radius); box-shadow: 0 16px 40px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.35); --cpc-src: hsl(var(--cpc-src-h, 200) 62% 52%); }",
+    "@media (max-width: 480px) { .cpc-detail { align-items: flex-end; padding: 0; } .cpc-detail-sheet { max-width: none; max-height: 88vh; border-radius: var(--cpc-radius) var(--cpc-radius) 0 0; border-bottom: 0; } }",
+    ".cpc-detail-accent { height: 4px; background: var(--cpc-src); border-radius: var(--cpc-radius) var(--cpc-radius) 0 0; }",
+    ".cpc-detail-head { display: grid; grid-template-columns: 1fr 44px; gap: 8px; align-items: start; padding: 14px var(--cpc-pad-x) 2px; }",
+    ".cpc-detail-title { font-size: 19px; font-weight: 600; line-height: 1.25; letter-spacing: -.01em; overflow-wrap: anywhere; margin: 0; }",
+    ".cpc-detail-close { width: 44px; height: 44px; display: grid; place-items: center; border: 0; background: transparent; border-radius: 50%; cursor: pointer; color: var(--cpc-fg-dim); margin-top: -6px; }",
+    ".cpc-detail-close:hover { background: var(--cpc-hover); }",
+    ".cpc-detail-when { padding: 4px var(--cpc-pad-x) 0; font-size: 14.5px; font-weight: 600; color: var(--cpc-fg); font-variant-numeric: tabular-nums; }",
+    ".cpc-detail-when .cpc-when-rel { color: var(--cpc-accent); font-weight: 700; }",
+    ".cpc-detail-when.overdue { color: var(--cpc-danger); }",
+    ".cpc-detail-badges { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px var(--cpc-pad-x) 0; }",
+    ".cpc-detail-body { padding: 12px var(--cpc-pad-x) 4px; display: flex; flex-direction: column; gap: 14px; }",
+    ".cpc-detail-row { display: grid; grid-template-columns: 22px 1fr; gap: 10px; align-items: start; min-width: 0; }",
+    ".cpc-detail-row ha-icon { margin-top: 1px; }",
+    ".cpc-detail-label { font-size: var(--cpc-fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--cpc-fg-dim); margin-bottom: 3px; }",
+    ".cpc-detail-loc { display: inline-flex; align-items: center; min-height: 44px; margin: -11px 0; padding: 0; border: 0; background: transparent; font: inherit; font-size: var(--cpc-fs-item); color: var(--cpc-accent); text-decoration: none; cursor: pointer; text-align: left; overflow-wrap: anywhere; }",
+    ".cpc-detail-loc:hover { text-decoration: underline; }",
+    ".cpc-detail-desc { font-size: var(--cpc-fs-item); line-height: 1.55; color: var(--cpc-fg); white-space: pre-wrap; overflow-wrap: anywhere; }",
+    ".cpc-detail-desc a { color: var(--cpc-accent); }",
+    ".cpc-detail-src { display: inline-flex; align-items: center; gap: 8px; font-size: var(--cpc-fs-item); color: var(--cpc-fg); }",
+    ".cpc-detail-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--cpc-src); flex-shrink: 0; }",
+    ".cpc-detail-dot.task { border-radius: 3px; }",
+    ".cpc-detail-note { padding: 10px var(--cpc-pad-x) 0; font-size: var(--cpc-fs-sub); color: var(--cpc-fg-dim); }",
+    ".cpc-detail-note.ok { color: var(--success-color, #2e7d32); }",
+    ".cpc-detail-note.err { color: var(--cpc-danger); }",
+    ".cpc-detail-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; padding: 10px var(--cpc-pad-x) 14px; border-top: 1px solid var(--cpc-line); position: sticky; bottom: 0; background: var(--ha-card-background, var(--cpc-surface)); }",
+    ".cpc-detail-actions .cpc-btn { min-height: 44px; }",
+    ".cpc-detail-spacer { flex: 1 1 auto; }",
+    ".cpc-btn.primary { background: rgba(var(--rgb-primary-color,3,169,244), .14); color: var(--cpc-accent); font-weight: 600; }",
+    ".cpc-btn.primary:hover { background: rgba(var(--rgb-primary-color,3,169,244), .22); }",
+    ".cpc-btn.ghost { border: 1px solid var(--cpc-line); }",
+    ".cpc-btn.quiet { color: var(--cpc-fg-dim); }",
+    ".cpc-btn[disabled] { opacity: .45; cursor: default; }",
+    ".cpc-detail-edit { display: flex; flex-direction: column; gap: 12px; padding: 12px var(--cpc-pad-x) 0; }",
+    ".cpc-detail-edit label { display: flex; flex-direction: column; gap: 5px; font-size: var(--cpc-fs-micro); font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--cpc-fg-dim); }",
+    ".cpc-detail-edit input { font: inherit; font-size: var(--cpc-fs-item); font-weight: 400; letter-spacing: normal; text-transform: none; color: var(--cpc-fg); background: rgba(var(--rgb-primary-text-color,33,33,33), .05); border: 1px solid var(--cpc-line); border-radius: 10px; padding: 0 12px; min-height: 44px; }",
+    ".cpc-detail-edit input:focus { border-color: var(--cpc-accent); background: var(--cpc-surface); }",
+    ".cpc-open { display: block; width: 100%; min-width: 0; margin: 0; padding: 0; border: 0; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }",
+    ".cpc-item[data-openable] { cursor: pointer; }",
+    "@media (prefers-reduced-motion: no-preference) { .cpc-detail-sheet { animation: cpc-sheet-in .16s ease-out; } }",
+    "@keyframes cpc-sheet-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }",
     /* 10. skeleton-laadstaat */
     ".cpc-skel-wrap { padding: 8px var(--cpc-pad-x) 12px; }",
     ".cpc-skel-day { display: grid; grid-template-columns: 44px 1fr; gap: 0 12px; padding: 10px 0 12px; }",
@@ -361,6 +405,87 @@
     return golden[n % golden.length];
   }
 
+  function itemKey(item) {
+    if (!item) return null;
+    var src = String(item._source || "");
+    if (isEvent(item)) {
+      var s = (item.start && (item.start.dateTime || item.start.date)) || "";
+      return "e|" + src + "|" + (item.uid || item.recurrence_id || "") + "|" + s + "|" + (item.summary || "");
+    }
+    return "t|" + src + "|" + (item.uid || item.summary || "");
+  }
+
+  function formatDayShort(key) {
+    var raw = new Intl.DateTimeFormat("nl-BE", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })
+      .format(parseDateOnly(key));
+    return raw.replace(/\./g, "");
+  }
+
+  function relDayLabel(key, todayKey) {
+    if (key === todayKey) return "vandaag";
+    if (key === addDaysToKey(todayKey, 1)) return "morgen";
+    if (key === addDaysToKey(todayKey, -1)) return "gisteren";
+    return "";
+  }
+
+  function eventEndDate(item) {
+    var e = item && item.end;
+    if (!e) return null;
+    if (typeof e === "string") return parseDue(e);
+    if (e.dateTime) return parseDue(e.dateTime);
+    if (e.date) return parseDue(e.date);
+    return null;
+  }
+
+  function formatEventWhen(item, tz, todayKey) {
+    var start = parseEventStart(item.start);
+    if (!start) return { main: "Datum onbekend", rel: "" };
+    var end = eventEndDate(item);
+    var sKey = brusselsDayKey(start, tz);
+    var rel = relDayLabel(sKey, todayKey);
+    if (isAllDayEvent(item)) {
+      /* end.date is exclusief: 9→10 sep betekent één dag, 9 sep */
+      var eKey = end ? addDaysToKey(brusselsDayKey(end, tz), -1) : sKey;
+      if (eKey > sKey) return { main: formatDayShort(sKey) + " – " + formatDayShort(eKey) + " · hele dag", rel: rel };
+      return { main: formatDayShort(sKey) + " · hele dag", rel: rel };
+    }
+    var eKey2 = end ? brusselsDayKey(end, tz) : sKey;
+    if (end && eKey2 !== sKey) {
+      return { main: formatDayShort(sKey) + " " + formatTime(start, tz) + " – " + formatDayShort(eKey2) + " " + formatTime(end, tz), rel: rel };
+    }
+    return { main: formatDayShort(sKey) + " · " + formatTime(start, tz) + (end ? " – " + formatTime(end, tz) : ""), rel: rel };
+  }
+
+  function stripHtmlish(text) {
+    return String(text == null ? "" : text)
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]+>/g, "")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&#39;/g, "'")
+      .replace(/&quot;/g, "\"");
+  }
+
+  function appendLinkedText(parent, text) {
+    var s = String(text == null ? "" : text);
+    var re = /https?:\/\/[^\s<>"']+/g;
+    var last = 0, m;
+    while ((m = re.exec(s)) !== null) {
+      if (m.index > last) parent.appendChild(document.createTextNode(s.slice(last, m.index)));
+      var url = m[0].replace(/[.,;:!?)\]]+$/, "");
+      var a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = url;
+      parent.appendChild(a);
+      last = m.index + url.length;
+    }
+    if (last < s.length) parent.appendChild(document.createTextNode(s.slice(last)));
+  }
+
   function h(tag, className, text) {
     var el = document.createElement(tag);
     if (className) el.className = className;
@@ -375,7 +500,7 @@
       if (cls) el.className = cls;
       return el;
     }
-    return h("span", cls, { "mdi:refresh": "↻", "mdi:chevron-down": "▾", "mdi:chevron-left": "‹", "mdi:chevron-right": "›", "mdi:trash-can-outline": "🗑", "mdi:map-marker-outline": "📍", "mdi:plus": "+" }[name] || "•");
+    return h("span", cls, { "mdi:refresh": "↻", "mdi:chevron-down": "▾", "mdi:chevron-left": "‹", "mdi:chevron-right": "›", "mdi:trash-can-outline": "🗑", "mdi:map-marker-outline": "📍", "mdi:plus": "+", "mdi:close": "×", "mdi:text-long": "¶", "mdi:pencil-outline": "✎", "mdi:check": "✓", "mdi:format-list-checks": "☑", "mdi:calendar-blank-outline": "📅" }[name] || "•");
   }
 
   function parseIdLines(text) {
@@ -418,6 +543,14 @@
       this._undatedOpen = true;
       this._selectedDay = null;
       this._confirmItem = null;
+      this._detailKey = null;
+      this._detailSnap = null;
+      this._detailGone = null;
+      this._detailEdit = false;
+      this._detailTitle = "";
+      this._detailDue = "";
+      this._detailNote = null;
+      this._detailFocused = false;
       this._addTitle = "";
       this._addDue = "";
       this._addList = "";
@@ -530,6 +663,13 @@
       return this._events.concat(this._tasks);
     }
 
+    _findItem(key) {
+      if (!key) return null;
+      var all = this._allItems();
+      for (var i = 0; i < all.length; i++) if (itemKey(all[i]) === key) return all[i];
+      return null;
+    }
+
     async _fetchAll() {
       if (!this._hass) return;
       this._lastFetch = Date.now();
@@ -590,7 +730,13 @@
 
     async _mutate(service, data) {
       if (!this._hass) return;
-      await this._hass.callService("todo", service, data);
+      try {
+        await this._hass.callService("todo", service, data);
+      } catch (e) {
+        this._detailNote = { type: "err", text: "Actie mislukt — probeer opnieuw" };
+        this._render();
+        return;
+      }
       this._lastFetch = 0;
       await this._fetchAll();
     }
@@ -611,14 +757,13 @@
       var root = this.shadowRoot;
       if (!root || !root.activeElement) return null;
       var el = root.activeElement;
-      if (el && (el.tagName === "INPUT" || el.tagName === "SELECT" || el.tagName === "TEXTAREA")) {
-        return {
-          id: el.getAttribute("data-cpc-field") || el.className || el.tagName,
-          sel: el.selectionStart,
-          value: el.value,
-        };
-      }
-      return null;
+      var tag = el.tagName;
+      var isField = tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA";
+      var named = el.getAttribute ? el.getAttribute("data-cpc-field") : null;
+      if (!isField && !named) return null;
+      var sel = null;
+      if (isField) { try { sel = el.selectionStart; } catch (e) {} }
+      return { id: named || el.className || tag, sel: sel, value: isField ? el.value : null };
     }
 
     _restoreFocus(f) {
@@ -657,6 +802,17 @@
       card.appendChild(body);
       if (this._view === "month" && this._selectedDay) {
         card.appendChild(this._renderDaySheet());
+      }
+      if (this._detailKey) {
+        var detail = this._renderDetail();
+        if (detail) card.appendChild(detail);
+        else {
+          this._detailKey = null;
+          this._detailSnap = null;
+          this._detailGone = null;
+          this._detailEdit = false;
+          this._detailNote = null;
+        }
       }
       if (this._confirmItem) {
         card.appendChild(this._renderConfirm());
@@ -924,21 +1080,29 @@
         lead.appendChild(timeEl);
         row.appendChild(lead);
         row.appendChild(h("div", "cpc-bar"));
-        var bodyCol = h("div", "cpc-body-col");
+        var bodyCol = h("button", "cpc-open cpc-body-col");
+        bodyCol.type = "button";
+        bodyCol.setAttribute("data-cpc-field", "row-" + itemKey(item));
         bodyCol.appendChild(h("div", "cpc-item-title", item.summary || ""));
         var sub = this._itemSub(item);
         if (sub) bodyCol.appendChild(sub);
         row.appendChild(bodyCol);
         row.appendChild(h("span", "cpc-badge", ""));
         row.appendChild(h("span", "cpc-del-spacer", ""));
+        row.setAttribute("data-openable", "");
+        row.addEventListener("click", function () {
+          if (row._cpcSwiped) { row._cpcSwiped = false; return; }
+          self._openDetail(item);
+        });
         return row;
       }
       var wrap = h("label", "cpc-check-wrap");
+      wrap.addEventListener("click", function (ev) { ev.stopPropagation(); });
       var cb = document.createElement("input");
       cb.type = "checkbox";
       cb.className = "cpc-check";
       cb.checked = item.status === "completed";
-      cb.setAttribute("aria-label", (item.title || "taak") + (cb.checked ? " — afgevinkt" : " — afvinken"));
+      cb.setAttribute("aria-label", (item.summary || "taak") + (cb.checked ? " — afgevinkt" : " — afvinken"));
       if (item.uid) cb.setAttribute("data-uid", item.uid);
       var doneTimer = null;
       cb.addEventListener("change", function () {
@@ -964,10 +1128,16 @@
       wrap.appendChild(cb);
       row.appendChild(wrap);
       row.appendChild(h("div", "cpc-bar"));
-      var bodyCol2 = h("div", "cpc-body-col");
+      var bodyCol2 = h("button", "cpc-open cpc-body-col");
+      bodyCol2.type = "button";
+      bodyCol2.setAttribute("data-cpc-field", "row-" + itemKey(item));
       bodyCol2.appendChild(h("div", "cpc-item-title", item.summary || ""));
       var sub2 = this._itemSub(item);
       if (sub2) bodyCol2.appendChild(sub2);
+      bodyCol2.addEventListener("click", function () {
+        if (row._cpcSwiped) { row._cpcSwiped = false; return; }
+        self._openDetail(item);
+      });
       row.appendChild(bodyCol2);
       if (overdue) row.appendChild(h("span", "cpc-badge danger", "Te laat"));
       else row.appendChild(h("span", "cpc-badge", ""));
@@ -975,7 +1145,8 @@
       del.type = "button";
       del.setAttribute("aria-label", "Taak «" + (item.summary || "") + "» verwijderen");
       del.appendChild(icon("mdi:trash-can-outline"));
-      del.addEventListener("click", function () {
+      del.addEventListener("click", function (ev) {
+        ev.stopPropagation();
         self._confirmItem = item;
         self._render();
       });
@@ -1013,6 +1184,7 @@
         if (startX == null) return;
         startX = null;
         row.style.transform = "";
+        if (Math.abs(dx) > 6) row._cpcSwiped = true;
         if (dx < -60) {
           self._confirmItem = item;
           self._render();
@@ -1329,6 +1501,376 @@
       return sheet;
     }
 
+    _openDetail(item) {
+      if (!item) return;
+      this._detailKey = itemKey(item);
+      this._detailSnap = item;
+      this._detailGone = null;
+      this._detailEdit = false;
+      this._detailNote = null;
+      this._detailFocused = false;
+      this._render();
+    }
+
+    _closeDetail(returnFocus) {
+      var key = this._detailKey;
+      this._detailKey = null;
+      this._detailSnap = null;
+      this._detailGone = null;
+      this._detailEdit = false;
+      this._detailNote = null;
+      this._render();
+      if (returnFocus !== false && key) {
+        var back = this.shadowRoot && this.shadowRoot.querySelector('[data-cpc-field="row-' + key + '"]');
+        if (back) { try { back.focus(); } catch (e) {} }
+      }
+    }
+
+    _detailCloseBtn() {
+      var self = this;
+      var close = h("button", "cpc-detail-close");
+      close.type = "button";
+      close.setAttribute("aria-label", "Sluiten");
+      close.setAttribute("data-cpc-field", "detail-close");
+      close.appendChild(icon("mdi:close"));
+      close.addEventListener("click", function () { self._closeDetail(true); });
+      return close;
+    }
+
+    _actionBtn(className, field, iconName, label, handler) {
+      var b = h("button", className);
+      b.type = "button";
+      if (field) b.setAttribute("data-cpc-field", field);
+      if (iconName) {
+        b.appendChild(icon(iconName));
+        b.appendChild(document.createTextNode(" " + label));
+      } else {
+        b.textContent = label;
+      }
+      if (handler) b.addEventListener("click", handler);
+      return b;
+    }
+
+    _detailNoteEl() {
+      if (!this._detailNote) return null;
+      var note = h("div", "cpc-detail-note " + (this._detailNote.type || ""), this._detailNote.text || "");
+      note.setAttribute("role", "status");
+      return note;
+    }
+
+    _detailAddEventToTasks(ev) {
+      var todos = this._config.todos || [];
+      if (!todos.length) return;
+      var entity = this._addList || todos[0];
+      var tz = this._timeZone();
+      var start = parseEventStart(ev.start);
+      var data = {
+        entity_id: entity,
+        item: String(ev.summary || "Afspraak"),
+      };
+      var key = start ? brusselsDayKey(start, tz) : null;
+      if (key) data.due_date = key;
+      this._detailNote = { type: "ok", text: "Toegevoegd aan " + this._friendlyName(entity) };
+      this._mutate("add_item", data);
+    }
+
+    _detailToggleDone() {
+      var item = this._findItem(this._detailKey) || this._detailSnap;
+      if (!item) return;
+      if (this._detailGone === "done") {
+        this._detailGone = null;
+        this._detailNote = { type: "ok", text: "Teruggezet" };
+        this._mutate("update_item", { entity_id: item._source, item: item.uid, status: "needs_action" });
+        return;
+      }
+      this._detailGone = "done";
+      this._detailSnap = item;
+      this._detailNote = { type: "ok", text: "Afgevinkt." };
+      this._mutate("update_item", { entity_id: item._source, item: item.uid, status: "completed" });
+    }
+
+    _detailStartEdit() {
+      var item = this._findItem(this._detailKey) || this._detailSnap;
+      if (!item) return;
+      this._detailEdit = true;
+      this._detailTitle = item.summary || "";
+      var due = parseDue(item.due);
+      this._detailDue = due ? brusselsDayKey(due, this._timeZone()) : "";
+      this._detailNote = null;
+      this._render();
+    }
+
+    _detailCancelEdit() {
+      this._detailEdit = false;
+      this._detailNote = null;
+      this._render();
+    }
+
+    _detailSave() {
+      var item = this._findItem(this._detailKey);
+      if (!item) return;
+      var title = (this._detailTitle || "").trim();
+      if (!title) { this._detailNote = { type: "err", text: "Titel mag niet leeg zijn" }; this._render(); return; }
+      var hadDue = !!parseDue(item.due);
+      var data = { entity_id: item._source, item: item.uid, rename: title };
+      if (this._detailDue) data.due_date = this._detailDue;
+      else if (hadDue) data.due_date = null;
+      this._detailEdit = false;
+      this._detailNote = { type: "ok", text: "Opgeslagen" };
+      if (!item.uid) {
+        this._detailKey = null;
+        this._detailSnap = null;
+        this._detailGone = null;
+      }
+      this._mutate("update_item", data);
+    }
+
+    _renderDetail() {
+      var key = this._detailKey;
+      var item = this._findItem(key);
+      if (!item) {
+        if (this._detailGone === "done" && this._detailSnap) item = this._detailSnap;
+        else return null;
+      } else {
+        this._detailSnap = item;
+        if (this._detailGone && item.status !== "completed") this._detailGone = null;
+      }
+      var self = this;
+      var overlay = h("div", "cpc-detail");
+      overlay.setAttribute("role", "dialog");
+      overlay.setAttribute("aria-modal", "true");
+      var titleId = "cpc-det-title-" + (++DETAIL_UID);
+      overlay.setAttribute("aria-labelledby", titleId);
+      var sheetEl = h("div", "cpc-detail-sheet");
+      sheetEl.setAttribute("tabindex", "-1");
+      sheetEl.style.setProperty("--cpc-src-h", String(sourceHue(item._source)));
+      sheetEl.appendChild(h("div", "cpc-detail-accent"));
+      if (isEvent(item)) this._renderDetailEvent(sheetEl, item, titleId);
+      else this._renderDetailTask(sheetEl, item, titleId);
+      overlay.appendChild(sheetEl);
+      overlay.addEventListener("click", function (ev) { if (ev.target === overlay) self._closeDetail(true); });
+      overlay.addEventListener("keydown", function (ev) {
+        if (ev.key !== "Escape") return;
+        ev.stopPropagation();
+        if (self._detailEdit) { self._detailCancelEdit(); return; }
+        self._closeDetail(true);
+      });
+      if (!this._detailFocused) {
+        this._detailFocused = true;
+        setTimeout(function () { try { sheetEl.focus(); } catch (e) {} }, 30);
+      }
+      return overlay;
+    }
+
+    _renderDetailEvent(sheetEl, item, titleId) {
+      var self = this;
+      var tz = this._timeZone();
+      var todayKey = brusselsDayKey(new Date(), tz);
+      var head = h("div", "cpc-detail-head");
+      var h2 = h("h2", "cpc-detail-title", item.summary || "");
+      h2.id = titleId;
+      head.appendChild(h2);
+      head.appendChild(this._detailCloseBtn());
+      sheetEl.appendChild(head);
+
+      var when = formatEventWhen(item, tz, todayKey);
+      var whenEl = h("div", "cpc-detail-when");
+      whenEl.appendChild(document.createTextNode(when.main));
+      if (when.rel) whenEl.appendChild(h("span", "cpc-when-rel", " · " + when.rel));
+      sheetEl.appendChild(whenEl);
+
+      var start = parseEventStart(item.start);
+      var end = eventEndDate(item);
+      var multi = false;
+      if (start && end) {
+        var sKey = brusselsDayKey(start, tz);
+        if (isAllDayEvent(item)) multi = addDaysToKey(brusselsDayKey(end, tz), -1) > sKey;
+        else multi = brusselsDayKey(end, tz) !== sKey;
+      }
+      if (isAllDayEvent(item) || multi) {
+        var badges = h("div", "cpc-detail-badges");
+        if (isAllDayEvent(item)) badges.appendChild(h("span", "cpc-badge", "Hele dag"));
+        if (multi) badges.appendChild(h("span", "cpc-badge", "Meerdaags"));
+        sheetEl.appendChild(badges);
+      }
+
+      var body = h("div", "cpc-detail-body");
+      if (item.location) {
+        var locRow = h("div", "cpc-detail-row");
+        locRow.appendChild(icon("mdi:map-marker-outline"));
+        var loc = document.createElement("a");
+        loc.className = "cpc-detail-loc";
+        loc.href = "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(String(item.location));
+        loc.target = "_blank";
+        loc.rel = "noopener noreferrer";
+        loc.textContent = String(item.location);
+        locRow.appendChild(loc);
+        body.appendChild(locRow);
+      }
+      if (item.description) {
+        var dRow = h("div", "cpc-detail-row");
+        dRow.appendChild(icon("mdi:text-long"));
+        var dCol = h("div");
+        dCol.appendChild(h("div", "cpc-detail-label", "Beschrijving"));
+        var desc = h("div", "cpc-detail-desc");
+        appendLinkedText(desc, stripHtmlish(item.description));
+        dCol.appendChild(desc);
+        dRow.appendChild(dCol);
+        body.appendChild(dRow);
+      }
+      var sRow = h("div", "cpc-detail-row");
+      sRow.appendChild(icon("mdi:calendar-blank-outline"));
+      var sCol = h("div");
+      sCol.appendChild(h("div", "cpc-detail-label", "Agenda"));
+      var src = h("span", "cpc-detail-src");
+      src.appendChild(h("span", "cpc-detail-dot"));
+      src.appendChild(document.createTextNode(this._friendlyName(item._source)));
+      sCol.appendChild(src);
+      sRow.appendChild(sCol);
+      body.appendChild(sRow);
+      sheetEl.appendChild(body);
+
+      var note = this._detailNoteEl();
+      if (note) sheetEl.appendChild(note);
+
+      var actions = h("div", "cpc-detail-actions");
+      var todos = this._config.todos || [];
+      if (todos.length) {
+        actions.appendChild(this._actionBtn("cpc-btn primary", "detail-add", "mdi:plus", "Toevoegen aan taken", function () {
+          self._detailAddEventToTasks(item);
+        }));
+      }
+      actions.appendChild(h("div", "cpc-detail-spacer"));
+      actions.appendChild(this._actionBtn("cpc-btn", "detail-dismiss", null, "Sluiten", function () { self._closeDetail(true); }));
+      sheetEl.appendChild(actions);
+    }
+
+    _renderDetailTask(sheetEl, item, titleId) {
+      var self = this;
+      var tz = this._timeZone();
+      var now = new Date();
+      var todayKey = brusselsDayKey(now, tz);
+      var gone = this._detailGone === "done";
+      var overdue = !gone && isOverdue(item, now, tz);
+
+      var head = h("div", "cpc-detail-head");
+      var h2 = h("h2", "cpc-detail-title", item.summary || "");
+      h2.id = titleId;
+      head.appendChild(h2);
+      head.appendChild(this._detailCloseBtn());
+      sheetEl.appendChild(head);
+
+      var whenEl = h("div", "cpc-detail-when" + (overdue ? " overdue" : ""));
+      var due = parseDue(item.due);
+      if (!due) {
+        whenEl.appendChild(document.createTextNode("Geen vervaldatum"));
+      } else {
+        var dKey = brusselsDayKey(due, tz);
+        var rel = relDayLabel(dKey, todayKey);
+        whenEl.appendChild(document.createTextNode("Vervalt " + formatDayShort(dKey)));
+        if (rel) whenEl.appendChild(h("span", "cpc-when-rel", " · " + rel));
+      }
+      sheetEl.appendChild(whenEl);
+
+      var badges = h("div", "cpc-detail-badges");
+      if (overdue) badges.appendChild(h("span", "cpc-badge danger", "Te laat"));
+      badges.appendChild(h("span", "cpc-badge", gone ? "Afgevinkt" : (item.status === "completed" ? "Afgevinkt" : "Open")));
+      sheetEl.appendChild(badges);
+
+      var body = h("div", "cpc-detail-body");
+      var lRow = h("div", "cpc-detail-row");
+      lRow.appendChild(icon("mdi:format-list-checks"));
+      var lCol = h("div");
+      lCol.appendChild(h("div", "cpc-detail-label", "Lijst"));
+      var lsrc = h("span", "cpc-detail-src");
+      lsrc.appendChild(h("span", "cpc-detail-dot task"));
+      lsrc.appendChild(document.createTextNode(this._friendlyName(item._source)));
+      lCol.appendChild(lsrc);
+      lRow.appendChild(lCol);
+      body.appendChild(lRow);
+      if (item.description) {
+        var nRow = h("div", "cpc-detail-row");
+        nRow.appendChild(icon("mdi:text-long"));
+        var nCol = h("div");
+        nCol.appendChild(h("div", "cpc-detail-label", "Notitie"));
+        var ndesc = h("div", "cpc-detail-desc");
+        appendLinkedText(ndesc, stripHtmlish(item.description));
+        nCol.appendChild(ndesc);
+        nRow.appendChild(nCol);
+        body.appendChild(nRow);
+      }
+      sheetEl.appendChild(body);
+
+      if (this._detailEdit && !gone) {
+        var edit = h("div", "cpc-detail-edit");
+        var labTitle = document.createElement("label");
+        labTitle.appendChild(document.createTextNode("Titel"));
+        var titleIn = document.createElement("input");
+        titleIn.type = "text";
+        titleIn.value = this._detailTitle;
+        titleIn.setAttribute("data-cpc-field", "detail-title");
+        titleIn.addEventListener("input", function () { self._detailTitle = titleIn.value; });
+        titleIn.addEventListener("keydown", function (ev) {
+          if (ev.key === "Enter") { ev.preventDefault(); self._detailSave(); }
+        });
+        labTitle.appendChild(titleIn);
+        edit.appendChild(labTitle);
+        var labDue = document.createElement("label");
+        labDue.appendChild(document.createTextNode("Vervaldatum"));
+        var dueIn = document.createElement("input");
+        dueIn.type = "date";
+        dueIn.value = this._detailDue || "";
+        dueIn.setAttribute("data-cpc-field", "detail-due");
+        dueIn.addEventListener("input", function () {
+          self._detailDue = dueIn.value;
+          self._render();
+        });
+        labDue.appendChild(dueIn);
+        edit.appendChild(labDue);
+        var chips = h("div", "cpc-chips");
+        function addChip(label, value) {
+          var pressed = value === "" ? !self._detailDue : self._detailDue === value;
+          var chip = h("button", "cpc-chip" + (pressed ? " active" : ""), label);
+          chip.type = "button";
+          chip.setAttribute("aria-pressed", pressed ? "true" : "false");
+          chip.addEventListener("click", function () {
+            self._detailDue = value;
+            self._render();
+          });
+          chips.appendChild(chip);
+        }
+        addChip("Vandaag", todayKey);
+        addChip("Morgen", addDaysToKey(todayKey, 1));
+        addChip("Geen datum", "");
+        edit.appendChild(chips);
+        sheetEl.appendChild(edit);
+      }
+
+      var note = this._detailNoteEl();
+      if (note) sheetEl.appendChild(note);
+
+      var actions = h("div", "cpc-detail-actions");
+      if (gone) {
+        actions.appendChild(this._actionBtn("cpc-btn ghost", "detail-undo", null, "Ongedaan maken", function () { self._detailToggleDone(); }));
+        actions.appendChild(h("div", "cpc-detail-spacer"));
+        actions.appendChild(this._actionBtn("cpc-btn primary", "detail-dismiss", null, "Sluiten", function () { self._closeDetail(true); }));
+      } else if (this._detailEdit) {
+        actions.appendChild(this._actionBtn("cpc-btn", "detail-cancel", null, "Annuleren", function () { self._detailCancelEdit(); }));
+        actions.appendChild(h("div", "cpc-detail-spacer"));
+        actions.appendChild(this._actionBtn("cpc-btn primary", "detail-save", null, "Opslaan", function () { self._detailSave(); }));
+      } else {
+        actions.appendChild(this._actionBtn("cpc-btn primary", "detail-done", "mdi:check", "Afvinken", function () { self._detailToggleDone(); }));
+        actions.appendChild(this._actionBtn("cpc-btn ghost", "detail-edit", "mdi:pencil-outline", "Bewerken", function () { self._detailStartEdit(); }));
+        actions.appendChild(h("div", "cpc-detail-spacer"));
+        actions.appendChild(this._actionBtn("cpc-btn quiet", "detail-del", "mdi:trash-can-outline", "Verwijderen", function () {
+          self._confirmItem = item;
+          self._render();
+        }));
+        actions.appendChild(this._actionBtn("cpc-btn", "detail-dismiss", null, "Sluiten", function () { self._closeDetail(true); }));
+      }
+      sheetEl.appendChild(actions);
+    }
+
     _renderConfirm() {
       var overlay = h("div", "cpc-confirm");
       overlay.setAttribute("role", "dialog");
@@ -1350,6 +1892,12 @@
       ok.addEventListener("click", function () {
         var item = self._confirmItem;
         self._confirmItem = null;
+        if (item && itemKey(item) === self._detailKey) {
+          self._detailKey = null;
+          self._detailSnap = null;
+          self._detailGone = null;
+          self._detailEdit = false;
+        }
         if (!item) {
           self._render();
           return;
@@ -1502,6 +2050,8 @@
     parseDue: parseDue,
     mixDayItems: mixDayItems,
     sourceHue: sourceHue,
+    itemKey: itemKey,
+    formatEventWhen: formatEventWhen,
     dayWeekdayShort: dayWeekdayShort,
     dayNumber: dayNumber,
     VERSION: VERSION,

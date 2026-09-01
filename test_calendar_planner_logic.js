@@ -83,22 +83,30 @@ global.document = {
   createElement: function (tag) {
     return {
       tagName: String(tag).toUpperCase(),
-      style: {},
+      style: { setProperty: function () {} },
       className: "",
       textContent: "",
       innerHTML: "",
       children: [],
       childNodes: [],
       dataset: {},
+      classList: { add: function () {}, remove: function () {}, toggle: function () {} },
+      _listeners: {},
+      _attrs: {},
       appendChild: function (el) {
         this.children.push(el);
         this.childNodes.push(el);
         return el;
       },
-      addEventListener: function () {},
-      setAttribute: function () {},
-      getAttribute: function () {
-        return null;
+      addEventListener: function (type, fn) {
+        this._listeners[type] = this._listeners[type] || [];
+        this._listeners[type].push(fn);
+      },
+      setAttribute: function (k, v) {
+        this._attrs[k] = v == null ? "" : String(v);
+      },
+      getAttribute: function (k) {
+        return Object.prototype.hasOwnProperty.call(this._attrs, k) ? this._attrs[k] : null;
       },
       querySelector: function () {
         return null;
@@ -107,6 +115,9 @@ global.document = {
         return [];
       },
     };
+  },
+  createTextNode: function (t) {
+    return { nodeType: 3, textContent: String(t), data: String(t) };
   },
 };
 global.CustomEvent = class CustomEvent {
@@ -296,8 +307,8 @@ test("getConfigElement → calendar-planner-card-editor", function () {
   }
 });
 
-test("VERSION is 1.2.1", function () {
-  assert.strictEqual(L.VERSION, "1.2.1");
+test("VERSION is 1.3.0", function () {
+  assert.strictEqual(L.VERSION, "1.3.0");
 });
 
 test("sourceHue: stabiel per id, hue uit gecureerde reeks", function () {
@@ -321,6 +332,135 @@ test("dayWeekdayShort/dayNumber 2026-09-01 → di / 1", function () {
   assert.strictEqual(L.dayNumber("2026-09-01"), "1");
   const wd = L.dayWeekdayShort("2026-09-01");
   assert.ok(/^di/i.test(String(wd).replace(".", "")), "verwacht di, kreeg " + wd);
+});
+
+test("itemKey: stabiel over kloon; event vs taak", function () {
+  assert.equal(typeof L.itemKey, "function");
+  const ev = {
+    _kind: "event",
+    _source: "calendar.gezin_2",
+    uid: "u1",
+    summary: "Infoavond",
+    start: { dateTime: "2026-09-09T16:00:00+02:00" },
+  };
+  assert.strictEqual(L.itemKey(ev), L.itemKey(Object.assign({}, ev)));
+  assert.ok(String(L.itemKey(ev)).indexOf("e|") === 0);
+  const t = { _kind: "task", _source: "todo.gezin_actief", uid: "t1", summary: "Turnzak" };
+  assert.ok(String(L.itemKey(t)).indexOf("t|") === 0);
+  assert.notStrictEqual(L.itemKey(ev), L.itemKey(t));
+});
+
+test("formatEventWhen: eendaags hele-dag, meerdaags, tijdsgebonden", function () {
+  assert.equal(typeof L.formatEventWhen, "function");
+  const one = L.formatEventWhen(
+    { start: { date: "2026-09-09" }, end: { date: "2026-09-10" } },
+    "Europe/Brussels",
+    "2026-09-08"
+  );
+  assert.ok(/hele dag/i.test(one.main), "eendaags moet 'hele dag' tonen: " + one.main);
+  assert.ok(one.main.indexOf("10") === -1, "exclusieve einddatum mag niet als 10 sep: " + one.main);
+  assert.strictEqual(one.rel, "morgen");
+
+  const multi = L.formatEventWhen(
+    { start: { date: "2026-09-09" }, end: { date: "2026-09-12" } },
+    "Europe/Brussels",
+    "2026-09-09"
+  );
+  assert.ok(/hele dag/i.test(multi.main), "meerdaags hele dag: " + multi.main);
+  assert.ok(/11/.test(multi.main), "exclusief 12 sep → tot 11 sep: " + multi.main);
+  assert.strictEqual(multi.rel, "vandaag");
+
+  const timed = L.formatEventWhen(
+    {
+      start: { dateTime: "2026-09-09T16:00:00+02:00" },
+      end: { dateTime: "2026-09-09T17:00:00+02:00" },
+    },
+    "Europe/Brussels",
+    "2026-09-09"
+  );
+  assert.ok(/16:00/.test(timed.main) && /17:00/.test(timed.main), "tijdvenster: " + timed.main);
+  assert.strictEqual(timed.rel, "vandaag");
+});
+
+test("detail-open-state: _openDetail zet sleutel, _closeDetail wist hem", function () {
+  const Card = customElements.get("calendar-planner-card");
+  const el = new Card();
+  el._config = Object.assign({}, L.DEFAULT_CONFIG, { todos: ["todo.gezin_actief"] });
+  const ev = {
+    _kind: "event",
+    _source: "calendar.gezin_2",
+    uid: "abc",
+    summary: "Infoavond eerste jaar",
+    start: { dateTime: "2026-09-09T16:00:00+02:00" },
+  };
+  el._events = [ev];
+  el._tasks = [];
+  el._render = function () {};
+  el._openDetail(ev);
+  assert.ok(el._detailKey, "_detailKey moet gezet zijn");
+  assert.strictEqual(el._detailKey, L.itemKey(ev));
+  assert.strictEqual(el._findItem(el._detailKey), ev);
+  el._closeDetail(false);
+  assert.strictEqual(el._detailKey, null);
+  assert.strictEqual(el._detailSnap, null);
+  assert.strictEqual(el._detailGone, null);
+});
+
+test("checkbox-label stopt click-propagatie (detail opent niet)", function () {
+  const Card = customElements.get("calendar-planner-card");
+  const el = new Card();
+  el._config = Object.assign({}, L.DEFAULT_CONFIG, { todos: ["todo.gezin_actief"] });
+  const item = {
+    _kind: "task",
+    _source: "todo.gezin_actief",
+    uid: "t1",
+    summary: "Turnzak wassen",
+    status: "needs_action",
+  };
+  const row = el._renderItem(item, "Europe/Brussels", new Date("2026-09-01T12:00:00+02:00"));
+  function findByClass(node, cls) {
+    if (!node) return null;
+    if (node.className && String(node.className).split(/\s+/).indexOf(cls) !== -1) return node;
+    const kids = node.children || [];
+    for (let i = 0; i < kids.length; i++) {
+      const f = findByClass(kids[i], cls);
+      if (f) return f;
+    }
+    return null;
+  }
+  const wrap = findByClass(row, "cpc-check-wrap");
+  assert.ok(wrap, "cpc-check-wrap ontbreekt");
+  assert.ok(wrap._listeners && wrap._listeners.click && wrap._listeners.click.length, "geen click-listener op label");
+  let stopped = false;
+  wrap._listeners.click[0]({ stopPropagation: function () { stopped = true; } });
+  assert.ok(stopped, "click op checkbox-label moet stopPropagation aanroepen");
+});
+
+test("Toevoegen aan taken: payload heeft item + due_date", function () {
+  const Card = customElements.get("calendar-planner-card");
+  const el = new Card();
+  el._config = Object.assign({}, L.DEFAULT_CONFIG, { todos: ["todo.gezin_actief"] });
+  el._addList = "todo.gezin_actief";
+  el._hass = {
+    config: { time_zone: "Europe/Brussels" },
+    states: { "todo.gezin_actief": { attributes: { friendly_name: "Gezin actief" } } },
+  };
+  el._render = function () {};
+  let captured = null;
+  el._mutate = function (service, data) {
+    captured = { service: service, data: data };
+  };
+  const ev = {
+    _kind: "event",
+    summary: "Infoavond eerste jaar",
+    start: { dateTime: "2026-09-09T16:00:00+02:00" },
+  };
+  el._detailAddEventToTasks(ev);
+  assert.ok(captured, "geen mutate-aanroep");
+  assert.strictEqual(captured.service, "add_item");
+  assert.strictEqual(captured.data.entity_id, "todo.gezin_actief");
+  assert.strictEqual(captured.data.item, "Infoavond eerste jaar");
+  assert.strictEqual(captured.data.due_date, "2026-09-09");
 });
 
 console.log("");
